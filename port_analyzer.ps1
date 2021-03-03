@@ -19,8 +19,6 @@ function runNTVCapture{
     Write-Host "Interface GUID: $interfaceGuid"
     $tmpConfig = "new_config.cfg"
 
-    Clear-Content -Path $tmpConfig
-
     Get-Content -Path ".\$configFile" | ForEach-Object {
         if($_ -match "(PCapAdapterName=\\Device\\NPF_)(?:.*)"){
             $PCapAdapter = ($Matches[1] + $interfaceGuid)
@@ -29,14 +27,21 @@ function runNTVCapture{
             Add-Content -Path $tmpConfig -Value $_
         }
     }
-    Write-Host "CP:"$tmpConfig
+
     $tmpConfig = Get-Item $tmpConfig
-    Write-Host "Live_config: $tmpConfig"
-    Start-Process -FilePath "NetworkTrafficView.exe" -ArgumentList "/LoadConfig $tmpConfig /captureTime $CAPTURE_TIME /scomma $outFileName"
+    Write-Host "Running traffic capture for $CAPTURE_TIME seconds..."
+    Start-Process -FilePath "NetworkTrafficView.exe" -ArgumentList "/LoadConfig $tmpConfig /captureTime $CAPTURE_TIME /scomma $outFileName" -ErrorAction Stop
     # Go to Sleep....
-    Sleep($CAPTURE_TIME + 3)
-    
-    #Remove-Item $tmpConfig
+    for ($i = 0; $i -le $CAPTURE_TIME; $i++ )
+    {
+        $secondsLeft = $CAPTURE_TIME - $i
+        $percentComplete = [int]($i/$CAPTURE_TIME * 100)
+        Write-Progress -Activity "Reading Traffic..." -Status "$secondsLeft Seconds remaining" -PercentComplete $percentComplete;
+        Sleep(1)
+    }
+    Sleep(1)
+    Write-Host "Capture Complete! "
+    Remove-Item $tmpConfig
 
     #Import and return the captured data
     $data = Import-Csv $outFileName
@@ -94,7 +99,7 @@ function getPortByRefenceCount{
     $srcCount = getPortReferenceCount $src $data
     
     $destCount = getPortReferenceCount $dest $data
-    #Write-Host "reference COunts: " $srcCount $destCount
+    #Write-Host "Comparing...: $src :  $srcCount -- $dest $destCount" 
     if($srcCount -gt $destCount){
         return $src
     } elseif($srcCount -lt $destCount){
@@ -147,7 +152,6 @@ function initializePortSummary {
     $processList = New-Object -TypeName "System.Collections.ArrayList"
     $clientList = New-Object -TypeName "System.Collections.ArrayList"
     $serverList = New-Object -TypeName "System.Collections.ArrayList"
-    Write-Host "ADDRESS: $address"
     if($local){
         $add = $clientList.Add($address)
     } else {
@@ -190,6 +194,8 @@ function updatePortSummary{
         $add = $summary.Processes.Add($proc)
     }
     $summary.PacketCount += $packetCount
+
+    return $summary
 }
 
 
@@ -197,10 +203,10 @@ function updatePortSummary{
 ################# MAIN ####################
 
 $server = (get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress
-$rawOutputFile = "$server_traffic_raw.csv"
+$rawOutputFile = ($server + "_traffic_raw.csv")
 Write-host $server
-runNTVCapture $CaptureTime $NTVConfigTemplate $rawOutputFile $IPInterface
-$data = Import-Csv $rawOutputFile
+$data = runNTVCapture $CaptureTime $NTVConfigTemplate $rawOutputFile $IPInterface
+#$data = Import-Csv $rawOutputFile
 
 $portTable = @{}
 
@@ -210,7 +216,7 @@ ForEach($row in $data){
     $destPort = [int]$row.'Destination Port'
     $packetCt = [int]$row.'Packet Count'
     $serviceName = $row.'Service Name'
-    $sp = getServicePort $srcPort $destPort
+    $sp = [int](getServicePort $srcPort $destPort)
     $owningProc = $row.'Process Filename'
     $outbound = ($row.'Source Address' -eq $server)
     if($outbound){
@@ -218,17 +224,17 @@ ForEach($row in $data){
     }  else {
         $address = $row.'Source Address'
     }
-
     #Write-Host "ADDRESS: "$address
     $local = isServicePortLocal $sp $srcPort $destPort $outbound
 
     if($sp){
-        if($portTable[$sp]){
-            updatePortSummary $packetCt $owningProc $address $local $portTable[$sp]
+        if($portTable.ContainsKey($sp)){
+            $summary = $portTable[$sp]
+             $summary = updatePortSummary $packetCt $owningProc $address $local $summary
         } else {
             $summary = initializePortSummary $sp $packetCt $serviceName $owningProc $address $local
-            $summary
             $portTable.Add($sp, $summary)
+            Write-Host "Added summary for port $sp"
         }
 
     } else {
@@ -239,8 +245,10 @@ ForEach($row in $data){
 
 $outputFile = ".\TrafficSummary.txt"
 Clear-Content $outputFile
-ForEach($port in $portTable.Keys){
-    $portTable[$port]
+$pt = $portTable.GetEnumerator() | Sort Key
+$portTable
+ForEach($port in $pt){
+    $port = $port.Name
     Add-Content -Path $outputFile -Value ("############### " + $portTable[$port].Port + " : " + $portTable[$port].Description + " ###############")
     Add-Content -Path $outputFile -Value ("Port #: " + $portTable[$port].Port)
     Add-Content -Path $outputFile -Value ("Service #: " + $portTable[$port].Description)
@@ -249,9 +257,10 @@ ForEach($port in $portTable.Keys){
     ForEach($proc in $portTable[$port].Processes){
         Add-Content -Path $outputFile -Value ($proc + "  ") -NoNewLine
     }
-    Add-Content -Path $outputFile -Value ("`n`nSERVERS")
+    Add-Content -Path $outputFile -Value "`n"
+    Add-Content -Path $outputFile -Value ("`n`n-----SERVERS-----")
     Add-Content -Path $outputFile -Value $portTable[$port].ServerIPs
-    Add-Content -Path $outputFile -Value ("`nCLIENTS")
+    Add-Content -Path $outputFile -Value ("`n-----CLIENTS-----")
     Add-Content -Path $outputFile -Value $portTable[$port].ClientIPs
     Add-Content -Path $outputFile -Value ("`n")
 }
