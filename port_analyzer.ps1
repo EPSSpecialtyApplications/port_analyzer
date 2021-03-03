@@ -1,4 +1,10 @@
 ﻿
+# Script Params 
+ param (
+    [string]$IPInterface = "Primary",
+    [string]$NTVConfigTemplate = "NTVConfig.cfg",
+    [int]$CaptureTime = 60 
+ )
 
 Enum Ports {
     SYSTEM = 1
@@ -7,30 +13,33 @@ Enum Ports {
 }
 
 function runNTVCapture{
-    param($CAPTURE_TIME, $configFile)
-    $adapter = Get-NetAdapter | Select InterfaceGuid, Name | Where Name -eq "Primary"
-    $confFile = "new_config.cfg"
-    $CAPTURE_TIME = 15
-    $rawOutputFile = "networktraffic_raw.csv"
+    param($CAPTURE_TIME, $configFile, $outFileName, $InterfaceAlias)
+    Write-Host "NTV Params: $CAPTURE_TIME, $configFile, $outFileName, $InterfaceAlias"
+    $interfaceGuid = (Get-NetAdapter | Select InterfaceGuid, Name | Where Name -eq $InterfaceAlias).InterfaceGuid
+    Write-Host "Interface GUID: $interfaceGuid"
+    $tmpConfig = "new_config.cfg"
+
+    Clear-Content -Path $tmpConfig
 
     Get-Content -Path ".\$configFile" | ForEach-Object {
         if($_ -match "(PCapAdapterName=\\Device\\NPF_)(?:.*)"){
-            $PCapAdapter = ($Matches[1] + $adapter.InterfaceGuid)
-            Write-Host "YAY"
-            Add-Content -Path $confFile -Value $PCapAdapter
+            $PCapAdapter = ($Matches[1] + $interfaceGuid)
+            Add-Content -Path $tmpConfig -Value $PCapAdapter
         } else {
-            Add-Content -Path $confFile -Value $_
+            Add-Content -Path $tmpConfig -Value $_
         }
     }
-    Write-Host "CP:"$confpath
-    $conf = Get-Item $confFile
-    Write-Host $conf
-    Start-Process -FilePath "NetworkTrafficView.exe" -ArgumentList "/LoadConfig $conf /captureTime $CAPTURE_TIME /scomma $rawOutputFile"
-
+    Write-Host "CP:"$tmpConfig
+    $tmpConfig = Get-Item $tmpConfig
+    Write-Host "Live_config: $tmpConfig"
+    Start-Process -FilePath "NetworkTrafficView.exe" -ArgumentList "/LoadConfig $tmpConfig /captureTime $CAPTURE_TIME /scomma $outFileName"
     # Go to Sleep....
     Sleep($CAPTURE_TIME + 3)
+    
+    #Remove-Item $tmpConfig
+
     #Import and return the captured data
-    $data = Import-Csv $rawOutputFile
+    $data = Import-Csv $outFileName
     return $data
 }
 
@@ -187,11 +196,12 @@ function updatePortSummary{
 
 ################# MAIN ####################
 
-runNTVCapture 40 "NTVConfig.cfg"
-
-$rawOutputFile = "networktraffic_raw.csv"
+$server = (get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress
+$rawOutputFile = "$server_traffic_raw.csv"
+Write-host $server
+runNTVCapture $CaptureTime $NTVConfigTemplate $rawOutputFile $IPInterface
 $data = Import-Csv $rawOutputFile
-$server = '10.24.36.177'
+
 $portTable = @{}
 
 ForEach($row in $data){
