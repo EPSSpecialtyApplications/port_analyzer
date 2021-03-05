@@ -1,7 +1,7 @@
 ﻿
 # Script Params 
  param (
-    [string]$IPInterface = "Primary",
+    [string]$IPInterface = "Public",
     [string]$NTVConfigTemplate = "NTVConfig.cfg",
     [int]$CaptureTime = 60 
  )
@@ -12,13 +12,20 @@ Enum Ports {
     EPHEMERAL = 3
 }
 
+
 function runNTVCapture{
     param($CAPTURE_TIME, $configFile, $outFileName, $InterfaceAlias)
-    Write-Host "NTV Params: $CAPTURE_TIME, $configFile, $outFileName, $InterfaceAlias"
+    #Write-Host "NTV Params: $CAPTURE_TIME, $configFile, $outFileName, $InterfaceAlias"
     $interfaceGuid = (Get-NetAdapter | Select InterfaceGuid, Name | Where Name -eq $InterfaceAlias).InterfaceGuid
-    Write-Host "Interface GUID: $interfaceGuid"
+
+    if(-not $interfaceGuid){
+        Write-Host "Could not find Network Adapter: $IPInterface . Specify the name of the interface you want to listen on with the -IPInterface script parameter. You can get a full list by running the Get-NetAdapter cmdlet" -BackgroundColor Black -ForeGroundColor Red
+        exit
+    }
+
     $tmpConfig = "new_config.cfg"
 
+    # Create temporary config file with correct Interface UID
     Get-Content -Path ".\$configFile" | ForEach-Object {
         if($_ -match "(PCapAdapterName=\\Device\\NPF_)(?:.*)"){
             $PCapAdapter = ($Matches[1] + $interfaceGuid)
@@ -30,7 +37,10 @@ function runNTVCapture{
 
     $tmpConfig = Get-Item $tmpConfig
     Write-Host "Running traffic capture for $CAPTURE_TIME seconds..."
+
+    #Start Network Traffic View and wait until the capture is complete 
     Start-Process -FilePath "NetworkTrafficView.exe" -ArgumentList "/LoadConfig $tmpConfig /captureTime $CAPTURE_TIME /scomma $outFileName" -ErrorAction Stop
+    
     # Go to Sleep....
     for ($i = 0; $i -le $CAPTURE_TIME; $i++ )
     {
@@ -39,8 +49,10 @@ function runNTVCapture{
         Write-Progress -Activity "Reading Traffic..." -Status "$secondsLeft Seconds remaining" -PercentComplete $percentComplete;
         Sleep(1)
     }
-    Sleep(1)
+    Sleep(1) # Sleep an extra second
     Write-Host "Capture Complete! "
+
+    # Remove temporary config file
     Remove-Item $tmpConfig
 
     #Import and return the captured data
@@ -50,6 +62,9 @@ function runNTVCapture{
 
 
 function getPortType{
+    <#
+        Returns the port type Enum given a port #
+    #>
     param($port)
     $SYSTEM_PORT_MAX = 1024
     $REGISTERED_PORT_MAX = 49151 
@@ -68,38 +83,42 @@ function getPortType{
 
 
 function isSpecialCase{
+    <#
+        Checks the port types and returns true for "special" cases that need handled for 
+        port analysis
+    #>
     param($srcPortType, $destPortType)
 
-    # Corner cases
     if($srcPortType -eq [Ports]::EPHEMERAL -and $destPortType -eq [Ports]::EPHEMERAL){
-        #Handle this case....
-        #Write-Host "Two client ports... What to do?"
+        #Case: Two client ports talking 
         return $true
     } elseif($srcPortType -eq [Ports]::REGISTERED -and $destPortType -eq [Ports]::REGISTERED){
-        #Write-Host "Two registered ports... what do to?"
+        #Case: two registered ports talking 
         return $true
     } elseif($srcPortType -eq [Ports]::SYSTEM -and $destPortType -eq [Ports]::SYSTEM){
-        #Write-Host "Two System ports..."
+        #Case: two system ports talking 
         return $true
     } 
     return $false
 }
 
 function getPortReferenceCount{
+    <# Counts how many times a port was referenced the capture as both a source & destination port #>
     param($port)
-    #Write-Host "PORT: $port"
-    #$data | Select 'Source Port' | Where 'Source Port' -eq $port
+
     $count = ($data | Select 'Source Port' | Where 'Source Port' -eq $port | Measure).Count
     $count += ($data | Select 'Destination Port' | Where 'Destination Port' -eq $port | Measure).Count
     return $count
 }
 
 function getPortByRefenceCount{
+    <#
+        For special cases, the service port is determined by counting how many times 
+        the port is referenced. The logic 
+    #>
     param($src, $dest)
     $srcCount = getPortReferenceCount $src $data
-    
     $destCount = getPortReferenceCount $dest $data
-    #Write-Host "Comparing...: $src :  $srcCount -- $dest $destCount" 
     if($srcCount -gt $destCount){
         return $src
     } elseif($srcCount -lt $destCount){
@@ -107,7 +126,6 @@ function getPortByRefenceCount{
     } else {
         return $null
     }
-
 }   
 
 function getServicePort {
@@ -115,12 +133,11 @@ function getServicePort {
     $srcPortType = getPortType $src
     $destPortType = getPortType $dest
 
-    if(isSpecialCase $srcPortType $destPortType){
-        #Write-Host $src $dest
+    if($src -eq $dest){
+        return $src  
+    }elseif(isSpecialCase $srcPortType $destPortType){
         $port = getPortByRefenceCount $src $dest
         return $port
-    } elseif($src -eq $dest){
-        return $src -or $dest
     } 
 
     return ($src, $dest | Measure -Min).Minimum   
@@ -130,14 +147,14 @@ function isServicePortLocal{
     param($port, $srcPort, $destPort, $outbound)
 
     if($outbound){
-        if($sp -eq $srcPort){
+        if($port -eq $srcPort){
             return $true
         } else {
             return $false
         }
 
     } else {
-        if($sp -eq $srcPort){
+        if($port -eq $srcPort){
             return $false
         } else {
             return $true
@@ -148,7 +165,6 @@ function isServicePortLocal{
 
 function initializePortSummary {
     param($sp, $packetCount, $description, $proc, $address, $local)
-    #Write-Host "Creating Port Summary $sp"
     $processList = New-Object -TypeName "System.Collections.ArrayList"
     $clientList = New-Object -TypeName "System.Collections.ArrayList"
     $serverList = New-Object -TypeName "System.Collections.ArrayList"
@@ -176,10 +192,6 @@ function initializePortSummary {
 function updatePortSummary{
     param($packetCount, $proc, $address, $local, $summary)
 
-    #Write-Host "-------Port Summary -------"
-    #$summary
-    #Write-Host "____________________________"
-    #$summary.ClientIPs.Add($address)
     if($local){
         if(-not $summary.ClientIPs.Contains($address)){
             $add = $summary.ClientIPs.Add($address)
@@ -204,11 +216,10 @@ function updatePortSummary{
 
 $server = (get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress
 $rawOutputFile = ($server + "_traffic_raw.csv")
-Write-host $server
+Write-host "Checking ports on: $server"
 $data = runNTVCapture $CaptureTime $NTVConfigTemplate $rawOutputFile $IPInterface
-#$data = Import-Csv $rawOutputFile
-
 $portTable = @{}
+
 
 ForEach($row in $data){
 
@@ -230,23 +241,26 @@ ForEach($row in $data){
     if($sp){
         if($portTable.ContainsKey($sp)){
             $summary = $portTable[$sp]
-             $summary = updatePortSummary $packetCt $owningProc $address $local $summary
+            $summary = updatePortSummary $packetCt $owningProc $address $local $summary
         } else {
             $summary = initializePortSummary $sp $packetCt $serviceName $owningProc $address $local
             $portTable.Add($sp, $summary)
-            Write-Host "Added summary for port $sp"
+
         }
 
     } else {
-        Write-host "Cannot determine service port for $srcPort - $destPort"
+        Write-host "Cannot determine service port for Source Port: $srcPort | Destination Port $destPort" -BackgroundColor DarkCyan -ForeGroundColor Black
     }
 
 }
 
 $outputFile = ".\TrafficSummary.txt"
-Clear-Content $outputFile
+Clear-Content $outputFile -ErrorAction SilentlyContinue
 $pt = $portTable.GetEnumerator() | Sort Key
-$portTable
+
+Write-Host "Creating port summary for "
+$portTable.Keys
+
 ForEach($port in $pt){
     $port = $port.Name
     Add-Content -Path $outputFile -Value ("############### " + $portTable[$port].Port + " : " + $portTable[$port].Description + " ###############")
@@ -265,3 +279,7 @@ ForEach($port in $pt){
     Add-Content -Path $outputFile -Value ("`n")
 }
 
+
+Start $outputFile
+
+################# END SCRIPT ####################
