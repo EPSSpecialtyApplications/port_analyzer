@@ -214,7 +214,7 @@ function updatePortSummary{
 
 ################# MAIN ####################
 
-$server = (get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress
+    $server = ((get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress |  Select-String -Pattern "\d{1,3}(\.\d{1,3}){3}" -AllMatches).Matches.Value
 $rawOutputFile = ($server + "_traffic_raw.csv")
 Write-host "Checking ports on: $server"
 $data = runNTVCapture $CaptureTime $NTVConfigTemplate $rawOutputFile $IPInterface
@@ -225,7 +225,7 @@ ForEach($row in $data){
 
     $srcPort = [int]$row.'Source Port'
     $destPort = [int]$row.'Destination Port'
-    $packetCt = [int]$row.'Packet Count'
+    $packetCt = [int]$row.'Packets Count'
     $serviceName = $row.'Service Name'
     $sp = [int](getServicePort $srcPort $destPort)
     $owningProc = $row.'Process Filename'
