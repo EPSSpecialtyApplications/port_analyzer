@@ -38,3 +38,23 @@ For example, if I want to run the script for my Wi-Fi traffic for 20 seconds, I 
 
 ## How it works 
 
+Port Analyzer works by running NetworkTrafficView.exe and summarizing the results output by this program. You can look at the raw results by opening **<IPAddress>\_traffic\_raw.csv** file generated after running the script. The port summary will be contained in a file titled TrafficSummary.txt. 
+
+For each connection given in the NetworkTrafficView results Port Analyzer will try to determine whether the **Source Port** or the **Destination Port** is hosting the service. I refer to this as the **service port**. The logic used to figure this out works like this:
+
+```
+if getPortClass(sourcePort) == getPortClass(destPort):
+	// case where both src and dest are the same--either system, registered or client
+	// Find the port referenced the most and assume that's the host 
+	port = findPortReferencedMost(sourcePort, destPort)
+	return port 
+else if sourcePort == destPort:
+	// Communication occuring over same port. 
+	return sourcePort
+else:
+	// source and destination are in different port classes.
+	// assume port in lowest range is hosting
+	return min(sourcePort, destPort)
+
+
+```
