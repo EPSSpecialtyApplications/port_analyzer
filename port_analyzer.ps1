@@ -2,7 +2,7 @@
 # Script Params 
  param (
     [string]$IPInterface = "Public",
-    [string]$NTVConfigTemplate = "NTVConfig.cfg",
+    [string]$NTVConfigTemplate = "config/NTVConfig.cfg",
     [int]$CaptureTime = 60 
  )
 
@@ -15,7 +15,6 @@ Enum Ports {
 
 function runNTVCapture{
     param($CAPTURE_TIME, $configFile, $outFileName, $InterfaceAlias)
-    #Write-Host "NTV Params: $CAPTURE_TIME, $configFile, $outFileName, $InterfaceAlias"
     $interfaceGuid = (Get-NetAdapter | Select InterfaceGuid, Name | Where Name -eq $InterfaceAlias).InterfaceGuid
 
     if(-not $interfaceGuid){
@@ -39,7 +38,7 @@ function runNTVCapture{
     Write-Host "Running traffic capture for $CAPTURE_TIME seconds..."
 
     #Start Network Traffic View and wait until the capture is complete 
-    Start-Process -FilePath "NetworkTrafficView.exe" -ArgumentList "/LoadConfig $tmpConfig /captureTime $CAPTURE_TIME /scomma $outFileName" -ErrorAction Stop
+    Start-Process -FilePath "NTV/NetworkTrafficView.exe" -ArgumentList "/LoadConfig $tmpConfig /captureTime $CAPTURE_TIME /scomma $outFileName" -ErrorAction Stop
     
     # Go to Sleep....
     for ($i = 0; $i -le $CAPTURE_TIME; $i++ )
@@ -135,7 +134,7 @@ function getServicePort {
 
     if($src -eq $dest){
         return $src  
-    }elseif(isSpecialCase $srcPortType $destPortType){
+    }elseif($srcPortType -eq $destPortType){
         $port = getPortByRefenceCount $src $dest
         return $port
     } 
@@ -174,7 +173,7 @@ function initializePortSummary {
         $add = $serverList.Add($address)
     }
     
-    if($proc){
+    if($proc.trim()){
         $add = $processList.Add($proc)
     }
 
@@ -202,7 +201,7 @@ function updatePortSummary{
         }
     }
 
-    if(-not $summary.Processes.Contains($proc)){
+    if(-not $summary.Processes.Contains($proc) -and $proc.trim().length -gt 0){
         $add = $summary.Processes.Add($proc)
     }
     $summary.PacketCount += $packetCount
@@ -214,10 +213,29 @@ function updatePortSummary{
 
 ################# MAIN ####################
 
-    $server = ((get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress |  Select-String -Pattern "\d{1,3}(\.\d{1,3}){3}" -AllMatches).Matches.Value
-$rawOutputFile = ($server + "_traffic_raw.csv")
+$sesh = New-Object -TypeName psobject -Property @{
+        StartTime=Get-Date
+        EndTime=$null
+        portList=$null
+        duration=$CaptureTime
+}
+
+$server = ((get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress |  Select-String -Pattern "\d{1,3}(\.\d{1,3}){3}" -AllMatches).Matches.Value
+$outputDir = $sesh.StartTime.tostring("yyyy.MM.dd.hh.mm.ss")
+#$rawOutputFile = ('output/' + $server + "_traffic_raw.csv")
+
+#Create new output directory 
+$newdir = New-Item -ItemType directory -Path ("output/{0}" -f $outputDir)
+
+
+
+$rawOutputFile = ("output/{0}/{1}_traffic_raw.csv" -f $outputDir, $server)
 Write-host "Checking ports on: $server"
+
 $data = runNTVCapture $CaptureTime $NTVConfigTemplate $rawOutputFile $IPInterface
+
+#Record endtime of capture
+$sesh.EndTime = Get-Date
 $portTable = @{}
 
 
@@ -235,7 +253,7 @@ ForEach($row in $data){
     }  else {
         $address = $row.'Source Address'
     }
-    #Write-Host "ADDRESS: "$address
+
     $local = isServicePortLocal $sp $srcPort $destPort $outbound
 
     if($sp){
@@ -254,12 +272,19 @@ ForEach($row in $data){
 
 }
 
-$outputFile = ".\TrafficSummary.txt"
+$outputFile = ("output/{0}/TrafficSummary.txt" -f $outputDir)
 Clear-Content $outputFile -ErrorAction SilentlyContinue
 $pt = $portTable.GetEnumerator() | Sort Key
+$sesh.portList = $portTable.Keys
 
-Write-Host "Creating port summary for "
-$portTable.Keys
+Write-Host ("Creating port summary for {0}" -f ($sesh.portList -join ", "))
+
+
+Add-Content -Path $outputFile -Value "############### SESSION SUMMARY ###############"
+Add-Content -Path $outputFile -Value ("Start Time:       {0}" -f $sesh.StartTime)
+Add-Content -Path $outputFile -Value ("End Time:         {0}" -f $sesh.EndTime)
+Add-Content -Path $outputFile -Value ("Capture Duration: {0}" -f $sesh.duration)
+Add-Content -Path $outputFile -Value ("Port List:        {0}`n" -f ($sesh.portList -join ", "))
 
 ForEach($port in $pt){
     $port = $port.Name
@@ -267,14 +292,10 @@ ForEach($port in $pt){
     Add-Content -Path $outputFile -Value ("Port #: " + $portTable[$port].Port)
     Add-Content -Path $outputFile -Value ("Service #: " + $portTable[$port].Description)
     Add-Content -Path $outputFile -Value ("Packet Count: " + $portTable[$port].PacketCount)
-    Add-Content -Path $outputFile -Value ("Processes: ") -NoNewLine
-    ForEach($proc in $portTable[$port].Processes){
-        Add-Content -Path $outputFile -Value ($proc + "  ") -NoNewLine
-    }
-    Add-Content -Path $outputFile -Value "`n"
-    Add-Content -Path $outputFile -Value ("`n`n-----SERVERS-----")
+    Add-Content -Path $outputFile -Value ("Processes: {0}`n" -f ($portTable[$port].Processes -join ", "))
+    Add-Content -Path $outputFile -Value ("-----SERVERS-----")
     Add-Content -Path $outputFile -Value $portTable[$port].ServerIPs
-    Add-Content -Path $outputFile -Value ("`n-----CLIENTS-----")
+    Add-Content -Path $outputFile -Value ("-----CLIENTS-----")
     Add-Content -Path $outputFile -Value $portTable[$port].ClientIPs
     Add-Content -Path $outputFile -Value ("`n")
 }
@@ -283,3 +304,4 @@ ForEach($port in $pt){
 Start $outputFile
 
 ################# END SCRIPT ####################
+
