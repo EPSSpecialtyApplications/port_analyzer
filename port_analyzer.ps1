@@ -26,8 +26,9 @@ function runNTVCapture{
 
     # Create temporary config file with correct Interface UID
     Get-Content -Path ".\$configFile" | ForEach-Object {
-        if($_ -match "(PCapAdapterName=\\Device\\NPF_)(?:.*)"){
-            $PCapAdapter = ($Matches[1] + $interfaceGuid)
+        if($_ -match "(AdapterName={)(?:.*)}"){
+            $PCapAdapter = ("AdapterName=$interfaceGuid")
+            Write-Host "Adding adapter: $PCapAdapter"
             Add-Content -Path $tmpConfig -Value $PCapAdapter
         } else {
             Add-Content -Path $tmpConfig -Value $_
@@ -134,7 +135,7 @@ function getServicePort {
 
     if($src -eq $dest){
         return $src  
-    }elseif($srcPortType -eq $destPortType){
+    } elseif($srcPortType -eq $destPortType){
         $port = getPortByRefenceCount $src $dest
         return $port
     } 
@@ -146,18 +147,9 @@ function isServicePortLocal{
     param($port, $srcPort, $destPort, $outbound)
 
     if($outbound){
-        if($port -eq $srcPort){
-            return $true
-        } else {
-            return $false
-        }
-
+        return $port -eq $srcPort
     } else {
-        if($port -eq $srcPort){
-            return $false
-        } else {
-            return $true
-        }
+        return $port -ne $srcPort
     }
 
 }
@@ -222,8 +214,6 @@ $sesh = New-Object -TypeName psobject -Property @{
 
 $server = ((get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress |  Select-String -Pattern "\d{1,3}(\.\d{1,3}){3}" -AllMatches).Matches.Value
 $outputDir = $sesh.StartTime.tostring("yyyy.MM.dd.hh.mm.ss")
-#$rawOutputFile = ('output/' + $server + "_traffic_raw.csv")
-
 #Create new output directory 
 $newdir = New-Item -ItemType directory -Path ("output/{0}" -f $outputDir)
 
@@ -273,12 +263,14 @@ ForEach($row in $data){
 }
 
 $outputFile = ("output/{0}/TrafficSummary.txt" -f $outputDir)
+$outputJSONFile = ("output/{0}/session.xml" -f $outputDir)
 Clear-Content $outputFile -ErrorAction SilentlyContinue
 $pt = $portTable.GetEnumerator() | Sort Key
 $sesh.portList = $portTable.Keys
 
-Write-Host ("Creating port summary for {0}" -f ($sesh.portList -join ", "))
 
+# Write the summary to txt file 
+Write-Host ("Creating port summary for {0}" -f ($sesh.portList -join ", "))
 
 Add-Content -Path $outputFile -Value "############### SESSION SUMMARY ###############"
 Add-Content -Path $outputFile -Value ("Start Time:       {0}" -f $sesh.StartTime)
@@ -300,6 +292,8 @@ ForEach($port in $pt){
     Add-Content -Path $outputFile -Value ("`n")
 }
 
+$portTable.add('session', $sesh)
+$portTable | Export-Clixml $outputJSONFile
 
 Start $outputFile
 
