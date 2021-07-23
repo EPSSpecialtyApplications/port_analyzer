@@ -267,7 +267,7 @@ ForEach($port in $pt){
     $port = $port.Name
     Add-Content -Path $outputFile -Value ("############### " + $portTable[$port].Port + " : " + $portTable[$port].Description + " ###############")
     Add-Content -Path $outputFile -Value ("Port #: " + $portTable[$port].Port)
-    Add-Content -Path $outputFile -Value ("Service #: " + $portTable[$port].Description)
+    Add-Content -Path $outputFile -Value ("Service: " + $portTable[$port].Description)
     Add-Content -Path $outputFile -Value ("Packet Count: " + $portTable[$port].PacketCount)
     Add-Content -Path $outputFile -Value ("Processes: {0}`n" -f ($portTable[$port].Processes -join ", "))
     Add-Content -Path $outputFile -Value ("-----SERVERS-----")
