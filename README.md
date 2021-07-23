@@ -1,14 +1,14 @@
 
 # Port Analyzer 
 
-Port Analyzer automatically documents the network I/O of a machine given a network adapter and an interval of time.  
+Port Analyzer automatically documents the network I/O of a machine by port for a given network adapter.  
 
 ## Usage
 
 You can run the script with the following parameters
 
 ```
-> ./port_analyzer -CaptureTime <seconds to run> -IPInterface <Network Adapter Name>
+> .\port_analyzer -CaptureTime <seconds to run> -IPInterface <Network Adapter Name>
 ```
 For example, if I want to run the script on my Wi-Fi traffic for 20 seconds, I would type:
 
