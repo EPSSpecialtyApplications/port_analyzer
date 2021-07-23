@@ -1,4 +1,4 @@
-﻿
+
 # Script Params 
  param (
     [string]$IPInterface = "Public",
@@ -94,7 +94,7 @@ function getPortReferenceCount{
 function getPortByRefenceCount{
     <#
         For special cases, the service port is determined by counting how many times 
-        the port is referenced. The logic 
+        the port is referenced. 
     #>
     param($src, $dest)
     $srcCount = getPortReferenceCount $src $data
@@ -251,7 +251,7 @@ $outputFile = ("output/{0}/TrafficSummary.txt" -f $outputDir)
 $outputXMLFile = ("output/{0}/session.xml" -f $outputDir)
 Clear-Content $outputFile -ErrorAction SilentlyContinue
 $pt = $portTable.GetEnumerator() | Sort Key
-$sesh.portList = $portTable.Keys
+$sesh.portList = ($portTable.Keys | sort)
 
 
 # Write the summary to txt file 
