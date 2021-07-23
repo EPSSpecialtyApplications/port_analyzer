@@ -1,13 +1,23 @@
 
 # Port Analyzer 
 
-Port Analyzer summarizes network traffic by port given an IP Interface and an interval of time.  
+Port Analyzer automatically documents the network I/O if a system given a network adapter and an interval of time.  
 
 ## How to use the script
 
-To start, you'll need to copy the root folder of this repo to the computer you want to run it on. 
+- You can run the script with the following parameters
 
-Next, choose the interface you want to run the script on. If you're unsure, you can get a list by running the **Get-NetAdapter** cmdlet 
+```
+> ./port_analyzer -CaptureTime <seconds to run> -IPInterface <Network Adapter Name>
+```
+For example, if I want to run the script on my Wi-Fi traffic for 20 seconds, I would type:
+
+```
+> .\port_analyzer.ps1 -CaptureTime 20 -IPInterface "Wi-Fi"
+``` 
+
+
+- If you're unsure of your network adapter names, you can get a list by running the **Get-NetAdapter** cmdlet 
 
 ```Powershell
 Get-NetAdapter | Select Name, Status
@@ -21,18 +31,21 @@ Ethernet 2 					  Up
 Wi-Fi 						  Up
 ```
 
-After you've chosen the name, you can run the script as follows:
-
+The results of the capture session will be recorded in the **output/** directory in a folder named according to the date/time the script was started
+```bash
+└───output
+    ├───2021.07.21.02.34.25
+    ├───2021.07.21.03.00.06
+    ├───2021.07.21.03.12.27
+    ├───2021.07.21.03.34.42
+    ├───2021.07.21.03.35.19
+    ├───2021.07.21.03.36.00
+    ├───2021.07.21.03.36.31
+    ...
 ```
-> ./port_analyzer -CaptureTime <seconds to run> -IPInterface <Network Adapter Name>
-```
-For example, if I want to run the script for my Wi-Fi traffic for 20 seconds, I would type:
 
-```
-> .\port_analyzer.ps1 -CaptureTime 20 -IPInterface "Wi-Fi"
-``` 
+## Sample Output
 
-## Sample Output Summary
 
 ```
 ############### 80 : http ###############
@@ -40,8 +53,6 @@ Port #: 80
 Service #: http
 Packet Count: 613
 Processes:   System  
-
-
 
 -----SERVERS-----
 x.x.x.x
@@ -51,10 +62,6 @@ x.x.x.x
 x.x.x.x
 x.x.x.x
 x.x.x.x
-
-
-
-
 
 ```
 <!-- ## How it works 

@@ -82,26 +82,6 @@ function getPortType{
 }
 
 
-function isSpecialCase{
-    <#
-        Checks the port types and returns true for "special" cases that need handled for 
-        port analysis
-    #>
-    param($srcPortType, $destPortType)
-
-    if($srcPortType -eq [Ports]::EPHEMERAL -and $destPortType -eq [Ports]::EPHEMERAL){
-        #Case: Two client ports talking 
-        return $true
-    } elseif($srcPortType -eq [Ports]::REGISTERED -and $destPortType -eq [Ports]::REGISTERED){
-        #Case: two registered ports talking 
-        return $true
-    } elseif($srcPortType -eq [Ports]::SYSTEM -and $destPortType -eq [Ports]::SYSTEM){
-        #Case: two system ports talking 
-        return $true
-    } 
-    return $false
-}
-
 function getPortReferenceCount{
     <# Counts how many times a port was referenced the capture as both a source & destination port #>
     param($port)
@@ -205,6 +185,7 @@ function updatePortSummary{
 
 ################# MAIN ####################
 
+# Initialize session info
 $sesh = New-Object -TypeName psobject -Property @{
         StartTime=Get-Date
         EndTime=$null
@@ -212,25 +193,28 @@ $sesh = New-Object -TypeName psobject -Property @{
         duration=$CaptureTime
 }
 
+# get this machine's IP given an interface  
 $server = ((get-netipaddress | Where InterfaceAlias -eq $IPInterface).IPAddress |  Select-String -Pattern "\d{1,3}(\.\d{1,3}){3}" -AllMatches).Matches.Value
-$outputDir = $sesh.StartTime.tostring("yyyy.MM.dd.hh.mm.ss")
+
 #Create new output directory 
+$outputDir = $sesh.StartTime.tostring("yyyy.MM.dd.hh.mm.ss")
+$rawOutputFile = ("output/{0}/{1}_traffic_raw.csv" -f $outputDir, $server)
+
+
 $newdir = New-Item -ItemType directory -Path ("output/{0}" -f $outputDir)
 
 
-
-$rawOutputFile = ("output/{0}/{1}_traffic_raw.csv" -f $outputDir, $server)
-Write-host "Checking ports on: $server"
-
+Write-host "Running capture on: $server"
 $data = runNTVCapture $CaptureTime $NTVConfigTemplate $rawOutputFile $IPInterface
 
 #Record endtime of capture
 $sesh.EndTime = Get-Date
+
+# Summarize data in port table 
 $portTable = @{}
-
-
 ForEach($row in $data){
 
+    # Initialize data for a single row of output
     $srcPort = [int]$row.'Source Port'
     $destPort = [int]$row.'Destination Port'
     $packetCt = [int]$row.'Packets Count'
@@ -243,19 +227,20 @@ ForEach($row in $data){
     }  else {
         $address = $row.'Source Address'
     }
-
     $local = isServicePortLocal $sp $srcPort $destPort $outbound
 
+    # if the service port is not null, which it can be in some cases... (see getPortByRefenceCount)
     if($sp){
         if($portTable.ContainsKey($sp)){
+            # if the port table already contains data on this port, update it with this row
             $summary = $portTable[$sp]
             $summary = updatePortSummary $packetCt $owningProc $address $local $summary
         } else {
+            # Otherwise, initialize port entry in the port table
             $summary = initializePortSummary $sp $packetCt $serviceName $owningProc $address $local
             $portTable.Add($sp, $summary)
 
         }
-
     } else {
         Write-host "Cannot determine service port for Source Port: $srcPort | Destination Port $destPort" -BackgroundColor DarkCyan -ForeGroundColor Black
     }
@@ -263,7 +248,7 @@ ForEach($row in $data){
 }
 
 $outputFile = ("output/{0}/TrafficSummary.txt" -f $outputDir)
-$outputJSONFile = ("output/{0}/session.xml" -f $outputDir)
+$outputXMLFile = ("output/{0}/session.xml" -f $outputDir)
 Clear-Content $outputFile -ErrorAction SilentlyContinue
 $pt = $portTable.GetEnumerator() | Sort Key
 $sesh.portList = $portTable.Keys
@@ -292,9 +277,11 @@ ForEach($port in $pt){
     Add-Content -Path $outputFile -Value ("`n")
 }
 
+# export the port table object to XML so we can use it later 
 $portTable.add('session', $sesh)
-$portTable | Export-Clixml $outputJSONFile
+$portTable | Export-Clixml $outputXMLFile
 
+#launch the summary
 Start $outputFile
 
 ################# END SCRIPT ####################

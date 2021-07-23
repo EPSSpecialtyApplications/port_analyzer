@@ -1,8 +1,3 @@
-
-
-
-
-
 $sessions = get-childitem -Path "output\" -recurse -Include "session.xml" | Import-CliXML
 $FWX = New-Object -TypeName psobject -Property @{
         clientIPs=$null
@@ -39,5 +34,17 @@ $FWX.clientIPs = ($clients | Select -Unique)
 $FWX.serverIPs = ($servers | Select -Unique)
 $FWX.hostedPorts = ($hostedPorts | Select -Unique)
 $FWX.remotePorts = ($remotePorts | Select -Unique)
+
+$outputFile = "output/FWXSummary.txt"
+
+Clear-Content $outputFile -ErrorAction SilentlyContinue
+Add-Content -Path $outputFile -Value "############### FWX SUMMARY ###############"
+Add-Content -Path $outputFile -Value ("Hosted Ports {0}" -f ($FWX.hostedPorts -join ", "))
+Add-Content -Path $outputFile -Value ("Remote Ports {0}" -f ($FWX.remotePorts -join ", "))
+Add-Content -Path $outputFile -Value ("`nSERVERS")
+Add-Content -Path $outputFile -Value $FWX.serverIPs
+Add-Content -Path $outputFile -Value ("`nCLIENTS")
+Add-Content -Path $outputFile -Value $FWX.clientIPs
+
 
 $FWX
