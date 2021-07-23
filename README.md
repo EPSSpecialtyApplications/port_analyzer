@@ -1,7 +1,7 @@
 
 # Port Analyzer 
 
-Port Analyzer automatically documents the network I/O if a system given a network adapter and an interval of time.  
+Port Analyzer automatically documents the network I/O of a machine given a network adapter and an interval of time.  
 
 ## Usage
 
@@ -45,7 +45,7 @@ The results of the capture session will be recorded in the **output/** directory
 
 ## Capture session output sample
 
-The program works by running the NetworkTrafficView.exe and summarizing the results output by this program. You can look at the raw results by opening "<IPAddress>\_traffic_raw.csv" file generated after running the script. The capture summary will be contained in a file titled TrafficSummary.txt.
+The program works by running the NetworkTrafficView.exe and summarizing the results output by this program. You can look at the raw results by opening the "\<IPAddress\>\_traffic_raw.csv" file generated after running the script. The capture session results will be written to a file titled **TrafficSummary.txt**.
 
 For each port in the capture summary, the following fields are listed:
 - **Port #:** the port # of the hosted service
